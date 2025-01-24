@@ -185,3 +185,22 @@ def check_verify():
 # check_add_user()
 # check_verify()
 # save_chat_history(['user'],'text','123')
+
+def get_chat_users(doc_id : str) -> list[str]:
+    try:
+        doc_ref = db.collection("chats").document(doc_id)
+        doc = doc_ref.get()
+
+        # Check if the document exists
+        if doc.exists:
+            users = doc.to_dict().get("users")
+
+
+            return users
+        else:
+            print(f"Document {doc_id} does not exist.")
+            return []
+
+
+    except Exception as e:
+        print(f"Error reading users list from chat {doc_id}: {e}")
