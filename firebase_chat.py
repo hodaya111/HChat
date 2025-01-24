@@ -66,7 +66,10 @@ def append_message_to_chat(doc_id, new_message, email ,users=None):
         }
 
         # Optionally update users if provided
-        if users:
+        users = get_chat_users(doc_id)
+
+        if email not in users:
+            users.append(email) ## TODO: Saving the users via email isn't really good.. consider saving with user ID
             update_data["users"] = users
 
         # Perform the update
@@ -195,8 +198,10 @@ def get_chat_users(doc_id : str) -> list[str]:
         if doc.exists:
             users = doc.to_dict().get("users")
 
-
-            return users
+            if users:
+                return users
+            else:
+                return []
         else:
             print(f"Document {doc_id} does not exist.")
             return []
@@ -204,3 +209,4 @@ def get_chat_users(doc_id : str) -> list[str]:
 
     except Exception as e:
         print(f"Error reading users list from chat {doc_id}: {e}")
+        return []
