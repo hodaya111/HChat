@@ -9,6 +9,30 @@ cred = credentials.Certificate("firebase-key.json")  # Replace with your key fil
 firebase_admin.initialize_app(cred)
 db = firestore.client()  # Use Realtime Database or Firestore based on your setup
 
+
+#
+# def get_user_chats(user_email):
+#     """
+#     Get all chat IDs where the given user email exists in the 'users' field.
+#
+#     :param user_email: Email of the user to search for.
+#     :return: List of chat document IDs.
+#     """
+#     try:
+#         # Query Firestore for chats where 'users' array contains the given email
+#         chats_ref = db.collection("chats")
+#         query = chats_ref.where("users", "array_contains", user_email)
+#         results = query.stream()
+#
+#         # Extract chat IDs
+#         chat_ids = [doc.id for doc in results]
+#
+#         return chat_ids
+#
+#     except Exception as e:
+#         print(f"Error fetching chats: {e}")
+#         return None  # Return None in case of error
+
 # Save chat history function
 def save_chat_history(users, messages):
     """
@@ -44,41 +68,86 @@ def save_chat_history(users, messages):
         return None
 
 
-
-# Function to append a message to an existing chat document
-def append_message_to_chat(doc_id, new_message, email ,users=None):
+def get_user_chats_data(user_email):
     """
-    Append a new message to the `messages` array in an existing chat document.
+    Retrieve all chats where the given user exists.
 
-    :param email: user's email
-    :param doc_id: The ID of the existing Firestore document
-    :param new_message: The message to append (dict with text, sent_date, type, etc.)
-    :param users: Optional list of users to update if necessary
-    :return: True if update succeeds, False otherwise
+    :param user_email: The email of the user to search for.
+    :return: List of dictionaries containing chat ID, users, and messages.
     """
     try:
-        doc_ref = db.collection("chats").document(doc_id)
+        # Query Firestore for chats where 'users' array contains the given email
+        chats_ref = db.collection("chats")
+        query = chats_ref.where("users", "array_contains", user_email)
+        results = query.stream()
 
-        # Prepare the update data
-        update_data = {
-            "messages": firestore.ArrayUnion([{"message": new_message, "time sent" : datetime.utcnow().isoformat(), "user email": email}]),
-            "last_updated": datetime.utcnow().isoformat(),  # Update timestamp
+        # Extract chat data (ID, users, messages)
+        user_chats = []
+        for doc in results:
+            chat_data = doc.to_dict()
+            chat_data["chat_id"] = doc.id  # Add the chat ID to the dictionary
+            user_chats.append(chat_data)
+
+        return user_chats
+
+    except Exception as e:
+        print(f"Error fetching chats: {e}")
+        return None  # Return None in case of error
+
+
+def append_message_to_chat(doc_id, new_message, email, users=None):
+    """
+    Append a new message to the `messages` array in an existing chat document.
+    If `doc_id` is None, create a new chat instead.
+
+    :param doc_id: The ID of the existing Firestore document (or None to create a new chat)
+    :param new_message: The message to append (dict with text, sent_date, type, etc.)
+    :param email: User's email
+    :param users: Optional list of users to update if necessary
+    :return: The chat ID (existing or new), or None if failed
+    """
+    try:
+        message_data = {
+            "message": new_message,
+            "time_sent": datetime.utcnow().isoformat(),
+            "user_email": email,
         }
 
-        # Optionally update users if provided
-        users = get_chat_users(doc_id)
+        if doc_id:  # Append to an existing chat
+            doc_ref = db.collection("chats").document(doc_id)
 
-        if email not in users:
-            users.append(email) ## TODO: Saving the users via email isn't really good.. consider saving with user ID
-            update_data["users"] = users
+            # Get existing users if not provided
+            if users is None:
+                users = get_chat_users(doc_id)
 
-        # Perform the update
-        doc_ref.update(update_data)
-        print(f"Message appended to chat with document ID: {doc_id}")
-        return True
+            if email not in users:
+                users.append(email)  # Consider saving by user ID instead of email
+
+            # Update the chat document
+            update_data = {
+                "messages": firestore.ArrayUnion([message_data]),
+                "users": users,
+                "last_updated": datetime.utcnow().isoformat(),
+            }
+            doc_ref.update(update_data)
+            print(f"Message appended to chat with document ID: {doc_id}")
+            return doc_id
+
+        else:  # Create a new chat
+            chat_data = {
+                "messages": [message_data],
+                "users": [email] if users is None else users + [email] if email not in users else users,
+                "created_at": datetime.utcnow().isoformat(),
+                "last_updated": datetime.utcnow().isoformat(),
+            }
+            doc_ref = db.collection("chats").add(chat_data)
+            new_chat_id = doc_ref[1].id  # Get generated document ID
+            print(f"New chat created with document ID: {new_chat_id}")
+            return new_chat_id
+
     except Exception as e:
-        print(f"Error appending message to chat: {e}")
-        return False
+        print(f"Error handling chat message: {e}")
+        return None
 
 
 # Function to hash passwords
@@ -176,18 +245,6 @@ def verify_user(email, password):
         print("Incorrect password.")
         return None, "Incorrect password."
 
-def check_verify():
-    # Example to verify user
-    verified_name = verify_user("user@example.com", "securepassword123")
-    if verified_name:
-        print(f"Welcome, {verified_name}!")
-    else:
-        print("Invalid credentials.")
-
-
-# check_add_user()
-# check_verify()
-# save_chat_history(['user'],'text','123')
 
 def get_chat_users(doc_id : str) -> list[str]:
     try:
